@@ -1,0 +1,88 @@
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(corrplot)
+library (caret)
+library(class)
+library(vegan)
+library(gmodels)
+
+#Load Data
+data<-read.csv(file.choose(),header=TRUE)
+
+#Clean the missing values
+sapply(data, function(x) sum(is.na(x)))
+
+#Missing values for blood pressure: 
+#Diastolic blood pressure (mm Hg) is recoreded in this data set is, 
+#and lower than 80 mm Hg is considered 'Normal', 
+#however it can never be zero. thus the missing values are replaced by its mean.
+
+mean_bp <- mean(data$BloodPressure[data$BloodPressure > 0])
+data$BloodPressure <- ifelse(data$BloodPressure == 0, round(mean_bp,0), data$BloodPressure)
+
+# Glucose
+mean_Glu <- mean(data$Glucose[data$Glucose > 0])
+data$Glucose <- ifelse(data$Glucose == 0, round(mean_Glu,0), data$Glucose)
+
+# SkinThickness
+mean_SkT <- mean(data$SkinThickness[data$Glucose > 0])
+data$SkinThickness <- ifelse(data$SkinThickness == 0, round(mean_SkT,0), data$Glucose)
+
+# Insulin
+mean_Insulin <- mean(data$Insulin[data$Insulin > 0])
+data$Insulin <- ifelse(data$Insulin == 0, round(mean_Insulin,0), data$Insulin)
+
+# BMI
+mean_BMI <- mean(data$BMI [data$BMI  > 0])
+data$BMI  <- ifelse(data$BMI  == 0, round(mean_BMI ,0), data$BMI)
+
+data$Outcome <- as.factor(data$Outcome)
+levels(data$Outcome) <- c("0", "1")
+
+table(data$Outcome)
+
+round(prop.table(table(data$Outcome)) * 100, digits = 2) #Shows the precent 
+
+#Target feature of the data is already encoded as a factor 
+#We want to scale the data:
+data[,1:8]<-scale(data[,1:8])
+
+#Set seed for splitting  data with 70/30
+set.seed(123)
+size<-floor(0.7*nrow(data))
+
+#Assign row labels
+row_labels=data[,9]
+
+#Obtain row numbers
+train_ind<-sample(seq_len(nrow(data)),size=size)
+
+#Training labels
+train_labels<-data[train_ind,9]
+
+#Testing labels
+test_labels<-row_labels[-train_ind]
+
+#Trainning data
+data_train<-data[train_ind,1:8]
+
+#Testing data
+data_test<-data[-train_ind,1:8]
+
+#Aproximate k
+val<-round(sqrt(nrow(data_train)))
+
+#model run
+predictions<-knn(train=data_train,test=data_test, cl=train_labels,k=val, prob=TRUE)
+
+#Check the extent of consensus between voters inside the knn model
+pred_23<-attr(predictions,"prob")
+head(pred_23)
+
+#Validation of the model
+gmodels::CrossTable(x=test_labels,y=predictions,prop.chisq=FALSE)
+
+table(predictions,test_labels)
+confusionMatrix(predictions,test_labels)
+
