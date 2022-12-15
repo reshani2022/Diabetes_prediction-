@@ -1,1 +1,200 @@
+#Project 1
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(corrplot)
+library (caret)
+library(class)
+library(vegan)
+#Load Data
+diabetes<-read.csv(file.choose(),header=TRUE)
+str(diabetes) #Identify the structure of the dataset
+summary(diabetes)
+
+#Exploring the precitor variables 
+p1 <- ggplot(diabetes, aes(x=Pregnancies)) + ggtitle("Number of times pregnant") +
+  geom_histogram(aes(y = 100*(..count..)/sum(..count..)), binwidth = 1, colour="black", fill="blue") + ylab("Percentage")
+p2 <- ggplot(diabetes, aes(x=Glucose)) + ggtitle("Glucose") +
+  geom_histogram(aes(y = 100*(..count..)/sum(..count..)), binwidth = 5, colour="black", fill="orange") + ylab("Percentage")
+p3 <- ggplot(diabetes, aes(x=BloodPressure)) + ggtitle("Blood Pressure") +
+  geom_histogram(aes(y = 100*(..count..)/sum(..count..)), binwidth = 2, colour="black", fill="green") + ylab("Percentage")
+p4 <- ggplot(diabetes, aes(x=SkinThickness)) + ggtitle("Skin Thickness") +
+  geom_histogram(aes(y = 100*(..count..)/sum(..count..)), binwidth = 2, colour="black", fill="pink") + ylab("Percentage")
+p5 <- ggplot(diabetes, aes(x=Insulin)) + ggtitle("Insulin") +
+  geom_histogram(aes(y = 100*(..count..)/sum(..count..)), binwidth = 20, colour="black", fill="red") + ylab("Percentage")
+p6 <- ggplot(diabetes, aes(x=BMI)) + ggtitle("Body Mass Index") +
+  geom_histogram(aes(y = 100*(..count..)/sum(..count..)), binwidth = 1, colour="black", fill="yellow") + ylab("Percentage")
+p7 <- ggplot(diabetes, aes(x=DiabetesPedigreeFunction)) + ggtitle("Diabetes Pedigree Function") +
+  geom_histogram(aes(y = 100*(..count..)/sum(..count..)), colour="black", fill="purple") + ylab("Percentage")
+p8 <- ggplot(diabetes, aes(x=Age)) + ggtitle("Age") +
+  geom_histogram(aes(y = 100*(..count..)/sum(..count..)), binwidth=1, colour="black", fill="lightblue") + ylab("Percentage")
+
+
+
+#Looking for correlation between numeric variables --> no need to drop them during analysis
+
+numeric.var <- sapply(diabetes, is.numeric)
+corr.matrix <- cor(diabetes[,numeric.var])
+corrplot(corr.matrix, main="\n\nCorrelation Plot for Numerical Variables", order = "hclust", tl.col = "black", tl.srt=45, tl.cex=0.8, cl.cex=0.8)
+box(which = "outer", lty = "solid")
+
+#We see that the numeric variables are not correlated 
+
+#Cleaning the data
+sapply(diabetes, function(x) sum(is.na(x)))
+
+#Missing values for blood pressure: 
+#Diastolic blood pressure (mm Hg) is recoreded in this data set is, 
+#and lower than 80 mm Hg is considered 'Normal', 
+#however it can never be zero. thus the missing values are replaced by its mean.
+
+#BP
+mean_bp <- mean(diabetes$BloodPressure[diabetes$BloodPressure > 0])
+diabetes$BloodPressure <- ifelse(diabetes$BloodPressure == 0, round(mean_bp,0), diabetes$BloodPressure)
+
+# Glucose
+mean_Glu <- mean(diabetes$Glucose[diabetes$Glucose > 0])
+diabetes$Glucose <- ifelse(diabetes$Glucose == 0, round(mean_Glu,0), diabetes$Glucose)
+
+# SkinThickness
+mean_SkT <- mean(diabetes$SkinThickness[diabetes$Glucose > 0])
+diabetes$SkinThickness <- ifelse(diabetes$SkinThickness == 0, round(mean_SkT,0), diabetes$Glucose)
+
+# Insulin
+mean_Insulin <- mean(diabetes$Insulin[diabetes$Insulin > 0])
+diabetes$Insulin <- ifelse(diabetes$Insulin == 0, round(mean_Insulin,0), diabetes$Insulin)
+
+# BMI
+mean_BMI <- mean(diabetes$BMI [diabetes$BMI  > 0])
+diabetes$BMI  <- ifelse(diabetes$BMI  == 0, round(mean_BMI ,0), diabetes$BMI )
+
+# determine if there is any correlation that exist between all the variables plotted against #eachother, after the missing values have been treated
+num_vars <- unlist(lapply(diabetes, is.numeric))  
+dia_nums <- diabetes[ , num_vars]
+dia_corr <- cor(dia_nums)
+corrplot(dia_corr, method="number")
+
+# Baseline model
+table(diabetes$Outcome)
+baseline <- round(500/nrow(diabetes),2)
+baseline
+#Do not select a model whose accuracy is lower than the baseline model. In this case, it is 0.65
+
+
+#Apply Logistic regression model
+#Preparing the dataset
+set.seed(123)
+n <- nrow(diabetes)
+train <- sample(n, trunc(0.70*n))
+diabetes_training <- diabetes[train, ]
+diabetes_testing <- diabetes[-train, ]
+
+#Training the model
+glm_fm1 <- glm(Outcome ~., data = diabetes_training, family = binomial)
+summary(glm_fm1)
+
+#At an alpha level of 0.05 I see that Blood pressure,skin thickness, age, and insulin 
+#are not statistically significant . In other words their p-vals are greater than 0.05.
+#Thus they are removed. 
+
+#Updating the model
+glm_fm2 <- update(glm_fm1, ~. - SkinThickness - Insulin - Age -BloodPressure )
+summary(glm_fm2)
+
+#Plot the new model
+par(mfrow = c(2,2))
+plot(glm_fm2)
+
+# Let's predict outcome on Training dataset
+PredictTrain <- predict(glm_fm2, type = "response")
+summary(PredictTrain)
+
+# This computes the average prediction for each of the two outcomes
+tapply(PredictTrain, diabetes_training$Outcome, mean)
+
+#Build confusion matrix with threshold value of 0.5
+threshold_0.5 <- table(diabetes_training$Outcome, PredictTrain > 0.5)
+threshold_0.5
+
+# Accuracy
+accuracy_0.5 <- round(sum(diag(threshold_0.5))/sum(threshold_0.5),2)
+sprintf("Accuracy is %s",accuracy_0.5)
+
+# Mis-classification error rate
+MC_0.5 <- 1-accuracy_0.5
+sprintf("Mis-classification error is %s",MC_0.5)
+
+sensitivity0.5 <- round(103/(103+84),2)
+specificity0.5 <- round(311/(311+39),2)
+sprintf("Sensitivity at 0.5 threshold: %s", sensitivity0.5)
+sprintf("Specificity at 0.5 threshold: %s", specificity0.5)
+
+# Build confusion matrix with a threshold value of 0.7)
+threshold_0.7 <- table(diabetes_training$Outcome, PredictTrain > 0.7)
+threshold_0.7
+
+#Accuracy 
+accuracy_0.7<- round(sum(diag(threshold_0.7))/sum(threshold_0.7),2)
+sprintf("Accuracy is %s",accuracy_0.7)
+
+# Mis-classification error rate
+MC_0.7 <- 1-accuracy_0.7
+sprintf("Mis-classification error is %s",MC_0.7)
+sensitivity0.7 <- round(72/(115+72),2)
+specificity0.7 <- round(335/(335+15),2)
+sprintf("Sensitivity at 0.7 threshold: %s", sensitivity0.7)
+sprintf("Specificity at 0.7 threshold: %s", specificity0.7)
+
+
+#Generate ROC curves
+library(ROCR)
+ROCRpred = prediction(PredictTrain, diabetes_training$Outcome)
+ROCRperf = performance(ROCRpred, "tpr", "fpr")
+
+plot(ROCRperf, colorize=TRUE, print.cutoffs.at = seq(0,1,0.1), text.adj = c(-0.2, 1.7))
+abline(a=0, b=1)
+
+auc_train <- round(as.numeric(performance(ROCRpred, "auc")@y.values),2)
+legend(.8, .2, auc_train, title = "AUC", cex=1)
+
+
+#Making predictions on test set
+PredictTest <- predict(glm_fm2, type = "response", newdata = diabetes_testing)
+# Convert probabilities to values using the below
+# Based on ROC curve above, selected a threshold of 0.5
+test_tab <- table(diabetes_testing$Outcome, PredictTest > 0.5)
+test_tab
+
+accuracy_test <- round(sum(diag(test_tab))/sum(test_tab),2)
+sprintf("Accuracy on test set is %s", accuracy_test)
+
+#Compute test set AUC
+ROCRPredTest = prediction(PredictTest, diabetes_testing$Outcome)
+auc = round(as.numeric(performance(ROCRPredTest, "auc")@y.values),2)
+auc
+
+
+#SVM
+
+diabetes$Outcome<-as.factor(diabetes$Outcome)
+library(e1071)
+
+#preparing the dataset with trainning and testing:
+set.seed(1000)
+intrain <- createDataPartition(y = diabetes$Outcome, p = 0.7, list = FALSE)
+train <- diabetes[intrain, ]
+test <- diabetes[-intrain, ]
+
+tuned <- tune.svm(Outcome ~., data = train, gamma = 10^(-6:-1), cost = 10^(-1:1))
+summary(tuned) # to show the results
+
+#Trainning
+svm_model  <- svm(Outcome ~., data = train, kernel = "radial", gamma = 0.01, cost = 10) 
+summary(svm_model)
+
+#Testing the Model
+svm_pred <- predict(svm_model, newdata = test)
+confusionMatrix(test$Outcome,svm_pred)
+acc_svm_model <- confusionMatrix(svm_pred, test$Outcome)$overall['Accuracy']
+
 
